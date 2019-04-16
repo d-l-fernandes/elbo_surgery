@@ -149,12 +149,20 @@ def jacobian(y, x, y_dims):
 # VAE stuff
 def make_encoder(y, latent_d, hidden_size=(500, 500)):
     net = make_dense(y, latent_d * 2, {"hidden_size": hidden_size}, concrete=False)
-    dist = mvg_dist.MultivariateNormalLogDiag(
+    dist_prod = mvg_dist.MultivariateNormalLogDiag(
         loc=net[..., :latent_d],
         log_covariance_diag=net[..., latent_d:],
         name="encoder"
     )
-    return dist, None
+
+    dist_sum = [
+        mvg_dist.MultivariateNormalLogDiag(
+            loc=net[..., i:i+1],
+            log_covariance_diag=net[...,latent_d+i:latent_d+i+1]
+        )
+        for i in range(latent_d)
+    ]
+    return dist_prod, dist_sum
 
 
 def make_decoder(x_code,

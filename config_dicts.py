@@ -53,7 +53,7 @@ def config_dict(parent_folder, vae_q, dataset):
     # VAE latent dimensions
     config["vae_q"] = vae_q
     # Number of draws used in marginal KL calculation and to get the test metrics
-    config["num_draws"] = 120
+    config["num_draws"] = 240
     # Max training epochs
     config["num_epochs"] = 500
     # Number of points in the X latent space from which to get reconstructed images

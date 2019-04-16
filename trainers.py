@@ -17,8 +17,12 @@ class VAETrainer(bm.BaseTrain):
             "elbo": [[], True],
             "reco": [[], True],
             "hist_reco": [[], False],
-            "kl": [[], True],
         }
+
+        if self.config["train_type"] == "product":
+            metrics["kl_prod"] = [[], True]
+        else:
+            metrics["kl_sum"] = [[], True]
 
         self.batch_gen = self.data.select_batch_generator("training")
         loop = tqdm(range(self.config["num_iter_per_epoch"]), desc=f"Epoch {cur_epoch+1}/{self.config['num_epochs']}",
@@ -36,7 +40,7 @@ class VAETrainer(bm.BaseTrain):
         return summaries_dict["Metrics/elbo"]
 
     def train_step(self):
-        batch_y, batch_x = next(self.batch_gen)
+        batch_y = next(self.batch_gen)
         feed_dict = {self.model.t_y: batch_y}
 
         _, cost, reco, reco_full, kl = \
@@ -52,7 +56,10 @@ class VAETrainer(bm.BaseTrain):
             "elbo": cost,
             "reco": reco,
             "hist_reco": reco_full,
-            "kl": kl,
         }
+        if self.config["train_type"] == "product":
+            metrics["kl_prod"] = kl
+        else:
+            metrics["kl_sum"] = kl
 
         return metrics

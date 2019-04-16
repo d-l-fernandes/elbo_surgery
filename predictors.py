@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 import base_model as bm
 
+
 class VAEPredictor(bm.BasePredict):
     def __init__(self, sess, model, data, config, logger):
         super(VAEPredictor, self).__init__(sess, model, data, config, logger)
@@ -33,7 +34,8 @@ class VAEPredictor(bm.BasePredict):
             "elbo": [[], True, True],
             "reco": [[], True, True],
             "hist_reco": [[], False, True],
-            "kl": [[], True, True],
+            "kl_prod": [[], True, True],
+            "kl_sum": [[], True, True],
             "mu_x": [[], False, False],
             "S_x": [[], False, False],
             "x_samples": [[], False, False]
@@ -54,13 +56,14 @@ class VAEPredictor(bm.BasePredict):
             metrics_step = self._train_local_step()
             self.metrics = self.update_metrics_dict(self.metrics, metrics_step)
 
-        if self.get_label:
-            self._plot_latent_space(np.array(self.metrics["mu_x"][0]),
-                                    np.array(self.metrics["S_x"][0]),
-                                    np.array(self.metrics["labels"][0]))
-        else:
-            self._plot_latent_space(np.array(self.metrics["mu_x"][0]),
-                                    np.array(self.metrics["S_x"][0]))
+        if self.config["vae_q"] <= 10:
+            if self.get_label:
+                self._plot_latent_space(np.array(self.metrics["mu_x"][0]),
+                                        np.array(self.metrics["S_x"][0]),
+                                        np.array(self.metrics["labels"][0]))
+            else:
+                self._plot_latent_space(np.array(self.metrics["mu_x"][0]),
+                                        np.array(self.metrics["S_x"][0]))
 
         if self.config["plot_dimensions"] == 1:
             self.plot_1d_results(self.config["results_dir"],
@@ -75,7 +78,10 @@ class VAEPredictor(bm.BasePredict):
         marginal_kl = self._calculate_marginal_kl(np.array(self.metrics["x_samples"][0]))
 
         summaries_dict = self.create_summaries_dict(self.metrics)
-        mutual_info = summaries_dict["Metrics/kl"] - marginal_kl
+        if self.config["test_type"] == "product":
+            mutual_info = summaries_dict["Metrics/kl_prod"] - marginal_kl
+        else:
+            mutual_info = summaries_dict["Metrics/kl_sum"] - marginal_kl
 
         summaries_dict["Metrics/marginal_kl"] = marginal_kl
         summaries_dict["Metrics/mutual_info"] = mutual_info
@@ -90,20 +96,21 @@ class VAEPredictor(bm.BasePredict):
 
         batch_label = None
         if self.get_label:
-            batch_y, batch_x, batch_y_original, batch_label = next(self.batch_gen)
+            batch_y, batch_y_original, batch_label = next(self.batch_gen)
         else:
-            batch_y, batch_x, batch_y_original = next(self.batch_gen)
+            batch_y, batch_y_original = next(self.batch_gen)
 
         feed_dict = {self.model.t_y: batch_y}
 
-        cost, reco, reco_full, kl, mu_x, s_x, x_sample, reco_image = \
+        cost, reco, reco_full, kl_prod, kl_sum, mu_x, s_x, x_sample, reco_image = \
             self.sess.run((self.model.t_avg_elbo_loss,
                            self.model.t_avg_reco,
                            self.model.t_full_reco,
-                           self.model.t_avg_kl,
-                           self.model.t_encoder_test.mean(),
-                           self.model.t_encoder_test.stddev(),
-                           self.model.t_encoder_test.sample(self.num_draws_per_batch),
+                           self.model.t_avg_kl_prod,
+                           self.model.t_avg_kl_sum,
+                           self.model.t_encoder_prod.mean(),
+                           self.model.t_encoder_prod.stddev(),
+                           self.model.t_encoder_prod.sample(self.num_draws_per_batch),
                            self.model.t_decoder.mean()),
                           feed_dict)
 
@@ -115,7 +122,8 @@ class VAEPredictor(bm.BasePredict):
             "elbo": cost,
             "reco": reco,
             "hist_reco": reco_full,
-            "kl": kl,
+            "kl_prod": kl_prod,
+            "kl_sum": kl_sum,
             "mu_x": mu_x,
             "x_samples": x_sample,
             "S_x": s_x
@@ -128,7 +136,7 @@ class VAEPredictor(bm.BasePredict):
     def _plot_latent_space(self, x, error_x, labels=None):
         image_name = os.path.join(self.config["results_dir"], f"xspace_")
 
-        for dim in range(self.config["gp_q"] // 2):
+        for dim in range(self.config["vae_q"] // 2):
             if labels is not None:
                 data = {"x": x[:, dim*2],
                         "y": x[:, dim*2+1],
@@ -187,12 +195,19 @@ class VAEPredictor(bm.BasePredict):
         prob = 0
         for _ in range(self.config["num_iter_per_epoch"]):
             if self.get_label:
-                batch_y, batch_x, batch_y_original, batch_label = next(batch_gen)
+                batch_y, batch_y_original, batch_label = next(batch_gen)
             else:
-                batch_y, batch_x, batch_y_original = next(batch_gen)
+                batch_y, batch_y_original = next(batch_gen)
             feed_dict = {self.model.t_y: batch_y}
-            prob += self.sess.run(tf.reduce_sum(self.model.t_encoder_test.prob(sample), axis=1),
-                                  feed_dict=feed_dict)
+            if self.config["test_type"] == "product":
+                prob += self.sess.run(tf.reduce_sum(self.model.t_encoder_prod.prob(sample), axis=1),
+                                      feed_dict=feed_dict)
+            else:
+                prob += self.sess.run(tf.reduce_sum(
+                    [tf.reduce_sum(self.model.t_encoder_sum[i].prob(tf.expand_dims(sample[:, :, i], axis=-1)), axis=1)
+                     for i in range(self.config["vae_q"])],
+                    axis=0
+                ) / self.config["vae_q"], feed_dict=feed_dict)
         return prob
 
     def _calculate_marginal_kl(self, x_samples):
@@ -212,15 +227,22 @@ class VAEPredictor(bm.BasePredict):
 
         batch_gen = self.data.select_batch_generator("testing_y")
         if self.get_label:
-            batch_y, batch_x, batch_y_original, batch_label = next(batch_gen)
+            batch_y, batch_y_original, batch_label = next(batch_gen)
         else:
-            batch_y, batch_x, batch_y_original = next(batch_gen)
+            batch_y, batch_y_original = next(batch_gen)
         feed_dict = {self.model.t_y: batch_y}
         expanded_x_samples = tf.cast(
             tf.tile(tf.expand_dims(chosen_samples, 1), [1, self.config["batch_size"], 1]),
             dtype=tf.float32)
-        marginal_kl -= self.sess.run(tf.reduce_sum(self.model.t_prior.log_prob(expanded_x_samples)[:, 0]),
-                                     feed_dict)
+
+        if self.config["test_type"] == "product":
+            marginal_kl -= self.sess.run(tf.reduce_sum(self.model.t_prior_prod.log_prob(expanded_x_samples)[:, 0]),
+                                         feed_dict)
+        else:
+            marginal_kl -= self.sess.run(tf.reduce_sum(
+                [self.model.t_prior_sum.log_prob(tf.expand_dims(expanded_x_samples[:, :, i], axis=-1))[:, 0]
+                 for i in range(self.config["vae_q"])]
+            ) / self.config["vae_q"], feed_dict)
         marginal_kl += np.sum(np.log(self._get_encoder_prob(expanded_x_samples)))
 
         marginal_kl /= x_samples.shape[0]

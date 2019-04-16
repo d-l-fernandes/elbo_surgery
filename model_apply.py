@@ -73,22 +73,21 @@ def main():
     args = parser.parse_args()
 
     vae_q_list = [2, 10, 20, 40, 100, 500, 1000]
-    vae_q_list = [10]
 
-    # dataset = "mnist"
+    dataset = "mnist"
     # dataset = "cmu_walk"
     # dataset = "mocap"
-    dataset = "mixture_gauss"
 
     model_name = "vae"
 
-    parent_folder = f"results/{model_name}/{dataset}"
 
     # Decoder architecture
     train_type = "product"
     # train_type = "sum"
-    test_type = "product"
-    # test_type = "sum"
+    # test_type = "product"
+    test_type = "sum"
+
+    parent_folder = f"results/{model_name}/{train_type}_{test_type}/{dataset}"
 
     # architecture = "bayes_dense"
     # architecture = "bayes_conv"
@@ -154,8 +153,6 @@ def main():
             data = dg.DataGeneratorMocap(config)
         elif dataset == "cmu_walk":
             data = dg.DataGeneratorCMUWalk(config)
-        elif dataset == "mixture_gauss":
-            data = dg.DataGeneratorMixtureGaussians(config)
 
         if args.multi:
             with Pool(1) as p:

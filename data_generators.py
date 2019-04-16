@@ -22,17 +22,14 @@ class DataGeneratorMNIST(bm.BaseDataGenerator):
 
         self.input_train_non_bin = x_train
 
-        self.input_train_pca = self.pca_transform(self.input_train, self.config["gp_q"])
-
     def select_batch_generator(self, phase):
         if phase == "training":
             while True:
                 idx = np.random.choice(self.config["num_data_points"], self.b_size)
-                yield self.input_train[idx], self.input_train_pca[idx]
+                yield self.input_train[idx]
         elif phase == "testing_y":
             for i in range(self.num_batches):
                 yield self.input_train[i * self.b_size:(i+1) * self.b_size], \
-                      self.input_train_pca[i * self.b_size:(i+1) * self.b_size], \
                       self.input_train_non_bin[i * self.b_size:(i+1) * self.b_size], \
                       self.y_train[i * self.b_size:(i+1) * self.b_size]
 
@@ -58,17 +55,15 @@ class DataGeneratorMocap(bm.BaseDataGenerator):
         x_train = np.load(self.path)
 
         self.input_train = self.standardize(x_train)
-        self.input_train_pca = self.pca_transform(self.input_train, self.config["gp_q"])
 
     def select_batch_generator(self, phase):
         if phase == "training":
             while True:
                 idx = np.random.choice(self.config["num_data_points"], self.b_size)
-                yield self.input_train[idx], self.input_train_pca[idx]
+                yield self.input_train[idx]
         elif phase == "testing_y":
             for i in range(self.num_batches):
                 yield self.input_train[i * self.b_size:(i+1) * self.b_size], \
-                      self.input_train_pca[i * self.b_size:(i+1) * self.b_size], \
                       self.input_train[i * self.b_size:(i+1) * self.b_size]
 
     def plot_data_point(self, data, axis):
@@ -115,17 +110,15 @@ class DataGeneratorCMUWalk(bm.BaseDataGenerator):
         x_train = np.array(x_train)
         self.input_train = self.standardize(x_train)
         # self.input_train = self.minmax(x_train)
-        self.input_train_pca = self.pca_transform(self.input_train, self.config["gp_q"])
 
     def select_batch_generator(self, phase):
         if phase == "training":
             while True:
                 idx = np.random.choice(self.config["num_data_points"], self.b_size)
-                yield self.input_train[idx], self.input_train_pca[idx]
+                yield self.input_train[idx]
         elif phase == "testing_y":
             for i in range(self.num_batches):
                 yield self.input_train[i * self.b_size:(i+1) * self.b_size], \
-                      self.input_train_pca[i * self.b_size:(i+1) * self.b_size], \
                       self.input_train[i * self.b_size:(i+1) * self.b_size]
 
     def plot_data_point(self, data, axis):
@@ -148,49 +141,3 @@ class DataGeneratorCMUWalk(bm.BaseDataGenerator):
         axis.get_xaxis().set_visible(False)
         axis.get_yaxis().set_visible(False)
 
-
-class DataGeneratorMixtureGaussians(bm.BaseDataGenerator):
-    def __init__(self, config):
-        super(DataGeneratorMixtureGaussians, self).__init__(config)
-        # load data here
-        min_x = -10
-        max_x = 10
-        train_share = 0.8
-        num_points = np.ceil(self.config["num_data_points"] / 0.8).astype(int)
-
-        mu_list = [-9, -6, -3, 0, 3, 6, 9]
-        normal_scale = 3
-
-        slope = 0.1
-        origin = 3
-
-        x = np.linspace(min_x, max_x, num_points)
-        y = slope * x + origin
-
-        for mu in mu_list:
-            y += normal_scale * stats.norm.pdf(x, mu)
-
-        if self.config["gp_q"] > 2:
-            random_dims = np.random.normal(size=(num_points, self.config["gp_q"]-2))
-            y = np.hstack((np.expand_dims(y, axis=-1), random_dims))
-        else:
-            y = np.expand_dims(y, axis=-1)
-
-        y = np.concatenate((np.expand_dims(x, axis=-1), y), axis=1)
-        self.input_train, self.input_test = train_test_split(y, train_size=train_share)
-
-        self.input_train_non_bin = self.input_train
-
-        # self.input_train_pca = self.pca_transform(self.input_train, self.config["gp_q"])
-        self.input_train_pca = self.input_train
-
-    def select_batch_generator(self, phase):
-        if phase == "training":
-            while True:
-                idx = np.random.choice(self.config["num_data_points"], self.b_size)
-                yield self.input_train[idx], self.input_train_pca[idx]
-        elif phase == "testing_y":
-            for i in range(self.num_batches):
-                yield self.input_train[i * self.b_size:(i+1) * self.b_size], \
-                      self.input_train_pca[i * self.b_size:(i+1) * self.b_size], \
-                      self.input_train_non_bin[i * self.b_size:(i+1) * self.b_size]
