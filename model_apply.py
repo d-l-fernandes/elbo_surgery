@@ -73,6 +73,7 @@ def main():
     args = parser.parse_args()
 
     vae_q_list = [2, 10, 20, 40, 100, 500, 1000]
+    vae_q_list = [2, 10, 20, 40]
 
     dataset = "mnist"
     # dataset = "cmu_walk"
@@ -84,10 +85,8 @@ def main():
     # Decoder architecture
     train_type = "product"
     # train_type = "sum"
-    # test_type = "product"
-    test_type = "sum"
 
-    parent_folder = f"results/{model_name}/{train_type}_{test_type}/{dataset}"
+    parent_folder = f"results/{model_name}/{train_type}/{dataset}"
 
     # architecture = "bayes_dense"
     # architecture = "bayes_conv"
@@ -133,7 +132,6 @@ def main():
         config["architecture_params"] = architecture_params
         config["encoder_hidden_size"] = encoder_hidden_size
         config["train_type"] = train_type
-        config["test_type"] = test_type
 
         # Create the experiment dirs
         if args.erase:

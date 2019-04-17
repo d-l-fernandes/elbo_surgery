@@ -158,7 +158,7 @@ def make_encoder(y, latent_d, hidden_size=(500, 500)):
     dist_sum = [
         mvg_dist.MultivariateNormalLogDiag(
             loc=net[..., i:i+1],
-            log_covariance_diag=net[...,latent_d+i:latent_d+i+1]
+            log_covariance_diag=net[..., latent_d+i:latent_d+i+1]
         )
         for i in range(latent_d)
     ]

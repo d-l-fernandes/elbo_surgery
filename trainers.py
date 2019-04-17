@@ -17,12 +17,9 @@ class VAETrainer(bm.BaseTrain):
             "elbo": [[], True],
             "reco": [[], True],
             "hist_reco": [[], False],
+            "kl_prod": [[], True],
+            "kl_sum": [[], True]
         }
-
-        if self.config["train_type"] == "product":
-            metrics["kl_prod"] = [[], True]
-        else:
-            metrics["kl_sum"] = [[], True]
 
         self.batch_gen = self.data.select_batch_generator("training")
         loop = tqdm(range(self.config["num_iter_per_epoch"]), desc=f"Epoch {cur_epoch+1}/{self.config['num_epochs']}",
@@ -43,23 +40,22 @@ class VAETrainer(bm.BaseTrain):
         batch_y = next(self.batch_gen)
         feed_dict = {self.model.t_y: batch_y}
 
-        _, cost, reco, reco_full, kl = \
+        _, cost, reco, reco_full, kl_prod, kl_sum = \
             self.sess.run((
                 self.model.opt_trainer,
                 self.model.t_avg_elbo_loss,
                 self.model.t_avg_reco,
                 self.model.t_full_reco,
-                self.model.t_avg_kl),
+                self.model.t_avg_kl_prod,
+                self.model.t_avg_kl_sum),
                 feed_dict)
 
         metrics = {
             "elbo": cost,
             "reco": reco,
             "hist_reco": reco_full,
+            "kl_prod": kl_prod,
+            "kl_sum": kl_sum
         }
-        if self.config["train_type"] == "product":
-            metrics["kl_prod"] = kl
-        else:
-            metrics["kl_sum"] = kl
 
         return metrics

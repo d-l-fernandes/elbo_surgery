@@ -38,7 +38,11 @@ class VAEPredictor(bm.BasePredict):
             "kl_sum": [[], True, True],
             "mu_x": [[], False, False],
             "S_x": [[], False, False],
-            "x_samples": [[], False, False]
+            "x_samples": [[], False, False],
+            "elbo_test": [[], True, True],
+            "reco_test": [[], True, True],
+            "kl_prod_test": [[], True, True],
+            "kl_sum_test": [[], True, True]
         }
 
         if self.get_label:
@@ -49,6 +53,7 @@ class VAEPredictor(bm.BasePredict):
 
         print("    Getting metrics...")
         self.batch_gen = self.data.select_batch_generator("testing_y")
+        self.batch_gen_test = self.data.select_batch_generator("test_set")
         self.num_draws_per_batch = np.ceil(self.config["num_draws"] / self.config["num_iter_per_epoch"])
         loop = tqdm(range(self.config["num_iter_per_epoch"]), desc="Y Testing Epoch", ascii=True)
 
@@ -75,16 +80,17 @@ class VAEPredictor(bm.BasePredict):
                                  self.config["num_iter_per_epoch"])
 
         print("    Getting Marginal KL...")
-        marginal_kl = self._calculate_marginal_kl(np.array(self.metrics["x_samples"][0]))
+        marginal_kl_prod = self._calculate_marginal_kl(np.array(self.metrics["x_samples"][0]), "product")
+        marginal_kl_sum = self._calculate_marginal_kl(np.array(self.metrics["x_samples"][0]), "sum")
 
         summaries_dict = self.create_summaries_dict(self.metrics)
-        if self.config["test_type"] == "product":
-            mutual_info = summaries_dict["Metrics/kl_prod"] - marginal_kl
-        else:
-            mutual_info = summaries_dict["Metrics/kl_sum"] - marginal_kl
+        mutual_info_prod = summaries_dict["Metrics/kl_prod"] - marginal_kl_prod
+        mutual_info_sum = summaries_dict["Metrics/kl_sum"] - marginal_kl_sum
 
-        summaries_dict["Metrics/marginal_kl"] = marginal_kl
-        summaries_dict["Metrics/mutual_info"] = mutual_info
+        summaries_dict["Metrics/marginal_kl_prod"] = marginal_kl_prod
+        summaries_dict["Metrics/marginal_kl_sum"] = marginal_kl_sum
+        summaries_dict["Metrics/mutual_info_prod"] = mutual_info_prod
+        summaries_dict["Metrics/mutual_info_sum"] = mutual_info_sum
 
         self.logger.summarize(1, summaries_dict=summaries_dict, summarizer="test")
 
@@ -130,6 +136,25 @@ class VAEPredictor(bm.BasePredict):
         }
         if self.get_label:
             metrics["labels"] = batch_label
+
+        if self.get_label:
+            batch_y, batch_y_original, batch_label = next(self.batch_gen_test)
+        else:
+            batch_y, batch_y_original = next(self.batch_gen_test)
+
+        feed_dict = {self.model.t_y: batch_y}
+
+        cost, reco, kl_prod, kl_sum = \
+            self.sess.run((self.model.t_avg_elbo_loss,
+                           self.model.t_avg_reco,
+                           self.model.t_avg_kl_prod,
+                           self.model.t_avg_kl_sum),
+                          feed_dict)
+
+        metrics["elbo_test"] = cost
+        metrics["reco_test"] = reco
+        metrics["kl_prod_test"] = kl_prod
+        metrics["kl_sum_test"] = kl_sum
 
         return metrics
 
@@ -190,7 +215,7 @@ class VAEPredictor(bm.BasePredict):
 
         self.images_saved += 1
 
-    def _get_encoder_prob(self, sample):
+    def _get_encoder_prob(self, sample, test_type):
         batch_gen = self.data.select_batch_generator("testing_y")
         prob = 0
         for _ in range(self.config["num_iter_per_epoch"]):
@@ -199,18 +224,17 @@ class VAEPredictor(bm.BasePredict):
             else:
                 batch_y, batch_y_original = next(batch_gen)
             feed_dict = {self.model.t_y: batch_y}
-            if self.config["test_type"] == "product":
+            if test_type == "product":
                 prob += self.sess.run(tf.reduce_sum(self.model.t_encoder_prod.prob(sample), axis=1),
                                       feed_dict=feed_dict)
             else:
-                prob += self.sess.run(tf.reduce_sum(
+                prob += self.sess.run(tf.reduce_mean(
                     [tf.reduce_sum(self.model.t_encoder_sum[i].prob(tf.expand_dims(sample[:, :, i], axis=-1)), axis=1)
                      for i in range(self.config["vae_q"])],
-                    axis=0
-                ) / self.config["vae_q"], feed_dict=feed_dict)
+                    axis=0), feed_dict=feed_dict)
         return prob
 
-    def _calculate_marginal_kl(self, x_samples):
+    def _calculate_marginal_kl(self, x_samples, test_type):
         """
         Calculates marginal KL (from ELBO surgery paper) for the test dataset
 
@@ -235,15 +259,14 @@ class VAEPredictor(bm.BasePredict):
             tf.tile(tf.expand_dims(chosen_samples, 1), [1, self.config["batch_size"], 1]),
             dtype=tf.float32)
 
-        if self.config["test_type"] == "product":
+        if test_type == "product":
             marginal_kl -= self.sess.run(tf.reduce_sum(self.model.t_prior_prod.log_prob(expanded_x_samples)[:, 0]),
                                          feed_dict)
         else:
-            marginal_kl -= self.sess.run(tf.reduce_sum(
+            marginal_kl -= self.sess.run(tf.reduce_mean(
                 [self.model.t_prior_sum.log_prob(tf.expand_dims(expanded_x_samples[:, :, i], axis=-1))[:, 0]
-                 for i in range(self.config["vae_q"])]
-            ) / self.config["vae_q"], feed_dict)
-        marginal_kl += np.sum(np.log(self._get_encoder_prob(expanded_x_samples)))
+                 for i in range(self.config["vae_q"])]), feed_dict)
+        marginal_kl += np.sum(np.log(self._get_encoder_prob(expanded_x_samples, test_type)))
 
         marginal_kl /= x_samples.shape[0]
         marginal_kl -= np.log(self.config["num_data_points"])

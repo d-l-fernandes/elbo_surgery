@@ -15,12 +15,13 @@ class DataGeneratorMNIST(bm.BaseDataGenerator):
         super(DataGeneratorMNIST, self).__init__(config)
         # load data here
         mnist = tf.keras.datasets.mnist
-        (x_train, self.y_train), (x_test, y_test) = mnist.load_data()
+        (x_train, self.y_train), (x_test, self.y_test) = mnist.load_data()
 
         self.input_train = self.binarize(x_train)
         self.input_test = self.binarize(x_test)
 
         self.input_train_non_bin = x_train
+        self.input_test_non_bin = x_test
 
     def select_batch_generator(self, phase):
         if phase == "training":
@@ -32,6 +33,13 @@ class DataGeneratorMNIST(bm.BaseDataGenerator):
                 yield self.input_train[i * self.b_size:(i+1) * self.b_size], \
                       self.input_train_non_bin[i * self.b_size:(i+1) * self.b_size], \
                       self.y_train[i * self.b_size:(i+1) * self.b_size]
+        elif phase == "test_set":
+            while True:
+                num_batches = self.input_test.shape[0] // self.b_size
+                for i in range(num_batches):
+                    yield self.input_test[i * self.b_size:(i+1) * self.b_size], \
+                          self.input_test_non_bin[i * self.b_size:(i+1) * self.b_size], \
+                          self.y_test[i * self.b_size:(i+1) * self.b_size]
 
     def plot_data_point(self, data, axis):
         if type(data) is list:
