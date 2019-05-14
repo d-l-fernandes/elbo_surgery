@@ -19,6 +19,7 @@ class VAEModel(bm.BaseModel):
         self.t_encoder_sum = None
 
         self.t_z = None
+        self.t_z_sum = None
 
         self.t_decoder = None
 
@@ -50,6 +51,7 @@ class VAEModel(bm.BaseModel):
                                                                    self.config["encoder_hidden_size"])
 
         self.t_z = self.t_encoder_prod.sample()
+        self.t_z_sum = [self.t_encoder_sum[i].sample() for i in range(self.config["vae_q"])]
 
         self.t_decoder = aux.make_decoder(
             self.t_z,
@@ -66,11 +68,20 @@ class VAEModel(bm.BaseModel):
         # ELBO
         self.t_full_reco = self.t_decoder.log_prob(self.t_y)
         self.t_avg_reco = tf.reduce_mean(self.t_full_reco)
-        self.t_avg_kl_prod = tf.reduce_mean(tfd.kl_divergence(self.t_encoder_prod, self.t_prior_prod))
-        self.t_avg_kl_sum = tf.reduce_mean(
-            [tf.reduce_mean(tfd.kl_divergence(self.t_encoder_sum[i], self.t_prior_sum))
-             for i in range(self.config["vae_q"])]
-        )
+        self.t_avg_kl_prod = \
+            tf.reduce_mean(tfd.kl_divergence(self.t_encoder_prod, self.t_prior_prod))
+
+        self.t_avg_kl_sum = \
+            - tf.reduce_mean(
+                tf.reduce_mean([self.t_prior_sum.log_prob(self.t_z_sum[i])
+                                for i in range(self.config["vae_q"])], axis=0)) \
+            + tf.reduce_mean(
+                tf.reduce_mean([tf.log(tf.reduce_mean([self.t_encoder_sum[j].prob(self.t_z_sum[i])
+                                                      for j in range(self.config["vae_q"])], axis=0))
+                                for i in range(self.config["vae_q"])], axis=0))
+
+        self.t_avg_kl_sum_full = [self.t_encoder_sum[i].kl_divergence(self.t_prior_sum)
+                                  for i in range(self.config["vae_q"])]
 
         if self.config["train_type"] == "product":
             self.t_avg_kl = self.t_avg_kl_prod

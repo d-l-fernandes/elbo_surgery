@@ -72,8 +72,8 @@ def main():
     group.add_argument("-e", "--erase", help="erase summary dirs before training", action="store_true")
     args = parser.parse_args()
 
-    vae_q_list = [2, 10, 20, 40, 100, 500, 1000]
-    vae_q_list = [2, 10, 20, 40]
+    vae_q_list = [2, 4, 10, 20]
+    vae_q_list = [10]
 
     dataset = "mnist"
     # dataset = "cmu_walk"
@@ -81,10 +81,9 @@ def main():
 
     model_name = "vae"
 
-
     # Decoder architecture
-    train_type = "product"
-    # train_type = "sum"
+    # train_type = "product"
+    train_type = "sum"
 
     parent_folder = f"results/{model_name}/{train_type}/{dataset}"
 

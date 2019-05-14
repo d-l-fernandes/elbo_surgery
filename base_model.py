@@ -196,7 +196,7 @@ class BaseTrain:
         summaries_dict = {}
         for metric in metrics_epoch.keys():
             if metrics_epoch[metric][1]:
-                summaries_dict[f"Metrics/{metric}"] = np.mean(metrics_epoch[metric][0])
+                summaries_dict[f"Metrics/{metric}"] = np.mean(metrics_epoch[metric][0], axis=0)
             else:
                 summaries_dict[f"Metrics/{metric}"] = np.array(metrics_epoch[metric][0])
 
@@ -301,7 +301,7 @@ class BasePredict:
             if not metrics_epoch[metric][2]:
                 continue
             if metrics_epoch[metric][1]:
-                summaries_dict[f"Metrics/{metric}"] = np.mean(metrics_epoch[metric][0])
+                summaries_dict[f"Metrics/{metric}"] = np.mean(metrics_epoch[metric][0], axis=0)
             else:
                 summaries_dict[f"Metrics/{metric}"] = np.array(metrics_epoch[metric][0])
 
@@ -385,6 +385,48 @@ class BaseDataGenerator:
         x = x / max_value
 
         return np.where(x > boundary, 1, 0)
+
+    def testing_x_generator(self):
+        min_val = -self.config["max_x_value"]  # Minimum value in each dimension
+        max_val = self.config["max_x_value"]  # Maximum value in each dimension
+
+        # min_val = [-0.2, -3]
+        # max_val = [0.2, 3]
+
+        # Number of points in each dimension;
+        n_points = self.config["num_plot_x_points"]
+
+        # The x dimensions are grouped in pairs and the reconstructed images are plotted in 2D, using these pairs
+        # If the number of dimensions is odd, then for the last one, the images are plotted on a line
+        # This avoids the exponential growth of the number of points, if every possible combination with every
+        # dimension was used
+        self.total_n_points = \
+            (n_points ** 2) * self.config["vae_q"] // 2 + n_points * self.config["vae_q"] % 2
+
+        # Create a grid of x testing points
+        final_grid = np.zeros((self.total_n_points, self.config["vae_q"]))
+
+        if self.config["vae_q"] == 1:
+            final_grid = np.linspace(min_val, max_val, n_points)
+        else:
+            aux_grid = np.array(
+                np.meshgrid(*[np.linspace(min_val, max_val, n_points) for _ in range(2)])
+                # np.meshgrid(*[np.linspace(n, m, n_points) for n, m  in zip(min_val, max_val)])
+            ).reshape(2, -1).T
+
+            if self.config["vae_q"] % 2 == 1:
+                final_grid[-n_points:, -1] = np.linspace(min_val, max_val, n_points)
+
+            for dim in range(self.config["vae_q"] // 2):
+                final_grid[n_points**2 * dim:n_points**2 * (dim+1), dim*2:dim*2+2] = aux_grid
+
+        # Padding with zeros so that the first dimension of final_grid is a multiple of batch_size
+        if final_grid.shape[0] % self.b_size != 0:
+            pad_num = self.b_size - (final_grid.shape[0] - final_grid.shape[0] // self.b_size * self.b_size)
+            final_grid = np.pad(final_grid, ((0, pad_num), (0, 0)), 'constant')
+
+        num_iter = final_grid.shape[0] // self.b_size
+        return num_iter, final_grid
 
     def select_batch_generator(self, phase):
         pass

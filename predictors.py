@@ -24,7 +24,8 @@ class VAEPredictor(bm.BasePredict):
 
     def predict(self):
         print("Getting predictions...")
-        self._predict_from_y()
+        # self._predict_from_y()
+        self._predict_from_x()
 
     def _predict_from_y(self):
 
@@ -36,6 +37,7 @@ class VAEPredictor(bm.BasePredict):
             "hist_reco": [[], False, True],
             "kl_prod": [[], True, True],
             "kl_sum": [[], True, True],
+            "hist_kl_sum": [[], False, False],
             "mu_x": [[], False, False],
             "S_x": [[], False, False],
             "x_samples": [[], False, False],
@@ -61,14 +63,10 @@ class VAEPredictor(bm.BasePredict):
             metrics_step = self._train_local_step()
             self.metrics = self.update_metrics_dict(self.metrics, metrics_step)
 
+        self._plot_individual_kl()
+
         if self.config["vae_q"] <= 10:
-            if self.get_label:
-                self._plot_latent_space(np.array(self.metrics["mu_x"][0]),
-                                        np.array(self.metrics["S_x"][0]),
-                                        np.array(self.metrics["labels"][0]))
-            else:
-                self._plot_latent_space(np.array(self.metrics["mu_x"][0]),
-                                        np.array(self.metrics["S_x"][0]))
+            self._plot_latent_space()
 
         if self.config["plot_dimensions"] == 1:
             self.plot_1d_results(self.config["results_dir"],
@@ -108,12 +106,13 @@ class VAEPredictor(bm.BasePredict):
 
         feed_dict = {self.model.t_y: batch_y}
 
-        cost, reco, reco_full, kl_prod, kl_sum, mu_x, s_x, x_sample, reco_image = \
+        cost, reco, reco_full, kl_prod, kl_sum, kl_sum_full, mu_x, s_x, x_sample, reco_image = \
             self.sess.run((self.model.t_avg_elbo_loss,
                            self.model.t_avg_reco,
                            self.model.t_full_reco,
                            self.model.t_avg_kl_prod,
                            self.model.t_avg_kl_sum,
+                           self.model.t_avg_kl_sum_full,
                            self.model.t_encoder_prod.mean(),
                            self.model.t_encoder_prod.stddev(),
                            self.model.t_encoder_prod.sample(self.num_draws_per_batch),
@@ -130,10 +129,12 @@ class VAEPredictor(bm.BasePredict):
             "hist_reco": reco_full,
             "kl_prod": kl_prod,
             "kl_sum": kl_sum,
+            "hist_kl_sum": np.array(kl_sum_full).T,
             "mu_x": mu_x,
             "x_samples": x_sample,
             "S_x": s_x
         }
+
         if self.get_label:
             metrics["labels"] = batch_label
 
@@ -158,46 +159,124 @@ class VAEPredictor(bm.BasePredict):
 
         return metrics
 
-    def _plot_latent_space(self, x, error_x, labels=None):
+    def _plot_latent_space(self):
         image_name = os.path.join(self.config["results_dir"], f"xspace_")
 
+        index = np.random.randint(0, self.config["num_data_points"], size=15000)
+        x = np.array(self.metrics["mu_x"][0])[index]
+        kls = np.array(self.metrics["hist_kl_sum"][0])[index]
+        # kl_max = np.max(kls)
+        kl_max = 8
+
+        data = {f"x{i}": x[:, i] for i in range(self.config["vae_q"])}
+        kls = {f"kl{i}": kls[:, i] for i in range(self.config["vae_q"])}
+        data.update(kls)
+
+        if 'labels' in self.metrics:
+            labels = np.array(self.metrics["labels"][0])[index]
+            data["color"] = labels
+        else:
+            labels = None
+
+        data = pd.DataFrame.from_dict(data)
+        brush = alt.selection(type='interval', resolve='global')
+        latent_plots = None
+        kl_plot = None
+
         for dim in range(self.config["vae_q"] // 2):
-            if labels is not None:
-                data = {"x": x[:, dim*2],
-                        "y": x[:, dim*2+1],
-                        "s": error_x,
-                        "color": labels}
-                data = pd.DataFrame.from_dict(data)
-                heat = alt.Chart(data).mark_rect().encode(
-                    x=alt.X('x:Q', bin=alt.Bin(maxbins=60)),
-                    y=alt.Y('y:Q', bin=alt.Bin(maxbins=60)),
-                    color=alt.Color('average(s)', scale=alt.Scale(scheme="greys"))
-                )
-                scatter = alt.Chart(data).mark_circle().encode(
-                    x='x:Q',
-                    y='y:Q',
-                    color=alt.Color('color:O', scale=alt.Scale(scheme="category10")),
+            if labels is None:
+                scatter = alt.Chart().mark_circle().encode(
+                    x=f'x{dim*2}',
+                    y=f'x{dim*2+1}',
+                    color=alt.condition(brush, alt.ColorValue('blue'), alt.ColorValue('gray')),
                     size=alt.value(5),
                     opacity=alt.value(0.5)
-                )
+                ).add_selection(brush)
             else:
-                data = {"x": x[:, dim*2],
-                        "s": error_x,
-                        "y": x[:, dim*2+1]}
-                data = pd.DataFrame.from_dict(data)
-                heat = alt.Chart(data).mark_rect().encode(
-                    x=alt.X('x:Q', bin=alt.Bin(maxbins=60)),
-                    y=alt.Y('y:Q', bin=alt.Bin(maxbins=60)),
-                    color=alt.Color('average(s)', scale=alt.Scale(scheme="greys"))
-                )
-                scatter = alt.Chart(data).mark_circle().encode(
-                    x='x:Q',
-                    y='y:Q',
+                scatter = alt.Chart().mark_circle().encode(
+                    x=f'x{dim*2}',
+                    y=f'x{dim*2+1}',
+                    color=alt.condition(brush, alt.Color('color:O', scale=alt.Scale(scheme='category10')),
+                                        alt.ColorValue('gray')),
                     size=alt.value(5),
                     opacity=alt.value(0.5)
-                )
-            chart = alt.layer(heat, scatter).interactive()
-            chart.save(f"{image_name}{dim*2+1}_{dim*2+2}.html")
+                ).add_selection(brush)
+
+            if latent_plots is None:
+                latent_plots = scatter
+            else:
+                latent_plots = latent_plots | scatter
+
+            hist = alt.Chart().mark_bar().encode(
+                y=alt.Y(f'mean(kl{dim*2})', scale=alt.Scale(domain=[0, kl_max]))
+            ).transform_filter(brush)
+            hist = hist | alt.Chart().mark_bar().encode(
+                y=alt.Y(f'mean(kl{dim*2+1})', scale=alt.Scale(domain=[0, kl_max]))
+            ).transform_filter(brush)
+            if kl_plot is None:
+                kl_plot = hist
+            else:
+                kl_plot = kl_plot | hist
+
+        final_plot = alt.vconcat(latent_plots, kl_plot, data=data)
+
+        final_plot.save(f"{image_name}latent.html")
+
+    # def _plot_latent_space(self, x, error_x, labels=None):
+    #     image_name = os.path.join(self.config["results_dir"], f"xspace_")
+
+    #     for dim in range(self.config["vae_q"] // 2):
+    #         if labels is not None:
+    #             data = {"x": x[:, dim*2],
+    #                     "y": x[:, dim*2+1],
+    #                     "s": error_x,
+    #                     "color": labels}
+    #             data = pd.DataFrame.from_dict(data)
+    #             heat = alt.Chart(data).mark_rect().encode(
+    #                 x=alt.X('x:Q', bin=alt.Bin(maxbins=60)),
+    #                 y=alt.Y('y:Q', bin=alt.Bin(maxbins=60)),
+    #                 color=alt.Color('average(s)', scale=alt.Scale(scheme="greys"))
+    #             )
+    #             scatter = alt.Chart(data).mark_circle().encode(
+    #                 x='x:Q',
+    #                 y='y:Q',
+    #                 color=alt.Color('color:O', scale=alt.Scale(scheme="category10")),
+    #                 size=alt.value(5),
+    #                 opacity=alt.value(0.5)
+    #             )
+    #         else:
+    #             data = {"x": x[:, dim*2],
+    #                     "s": error_x,
+    #                     "y": x[:, dim*2+1]}
+    #             data = pd.DataFrame.from_dict(data)
+    #             heat = alt.Chart(data).mark_rect().encode(
+    #                 x=alt.X('x:Q', bin=alt.Bin(maxbins=60)),
+    #                 y=alt.Y('y:Q', bin=alt.Bin(maxbins=60)),
+    #                 color=alt.Color('average(s)', scale=alt.Scale(scheme="greys"))
+    #             )
+    #             scatter = alt.Chart(data).mark_circle().encode(
+    #                 x='x:Q',
+    #                 y='y:Q',
+    #                 size=alt.value(5),
+    #                 opacity=alt.value(0.5)
+    #             )
+    #         chart = alt.layer(heat, scatter).interactive()
+    #         chart.save(f"{image_name}{dim*2+1}_{dim*2+2}.html")
+
+    def _plot_individual_kl(self):
+        kl_divergences = np.mean(self.metrics["hist_kl_sum"][0], axis=0)
+
+        data = {"KL": kl_divergences,
+                "dim": list(range(self.config["vae_q"]))
+                }
+        data = pd.DataFrame.from_dict(data)
+
+        chart = alt.Chart(data).mark_bar().encode(
+            x="dim:O",
+            y="KL:Q"
+        ).interactive()
+
+        chart.save(f"{self.config['results_dir']}kl_divergences.html")
 
     def _plot_reconstructed_image(self, reco, original):
         index_to_save = np.random.randint(self.config["batch_size"]-1)
@@ -263,9 +342,14 @@ class VAEPredictor(bm.BasePredict):
             marginal_kl -= self.sess.run(tf.reduce_sum(self.model.t_prior_prod.log_prob(expanded_x_samples)[:, 0]),
                                          feed_dict)
         else:
-            marginal_kl -= self.sess.run(tf.reduce_mean(
-                [self.model.t_prior_sum.log_prob(tf.expand_dims(expanded_x_samples[:, :, i], axis=-1))[:, 0]
-                 for i in range(self.config["vae_q"])]), feed_dict)
+            marginal_kl -= self.sess.run(
+                tf.reduce_sum(
+                    tf.reduce_mean(
+                        [self.model.t_prior_sum.log_prob(tf.expand_dims(expanded_x_samples[:, :, i], axis=-1))[:, 0]
+                         for i in range(self.config["vae_q"])],
+                        axis=0)
+                ),
+                feed_dict)
         marginal_kl += np.sum(np.log(self._get_encoder_prob(expanded_x_samples, test_type)))
 
         marginal_kl /= x_samples.shape[0]
@@ -297,3 +381,58 @@ class VAEPredictor(bm.BasePredict):
 
         image_name = os.path.join(self.config["results_dir"], "decoder_weights")
         chart.save(f"{image_name}.html")
+
+    def _predict_from_x(self):
+        self.batch_gen = self.data.select_batch_generator("testing_x")
+
+        for batch_mu_x in self.batch_gen:
+            y_reco = self.sess.run(self.model.t_decoder.mean(),
+                                   feed_dict={self.model.t_z: batch_mu_x})
+            self.y_reco_list += y_reco.tolist()
+
+        self._plot_x_grid()
+
+    def _plot_x_grid(self):
+
+        image_name = os.path.join(self.config["results_dir"], f"xdims")
+        n_points = self.config["num_plot_x_points"]
+        plt.clf()
+        if self.config["vae_q"] == 1:
+            if self.config["plot_dimensions"] == 3:
+                f, axarr = plt.subplots(1, n_points, subplot_kw={"projection": '3d'})
+            else:
+                f, axarr = plt.subplots(1, n_points)
+            for point in range(n_points):
+                self.data.plot_data_point(self.y_reco_list[point], axarr[point])
+                axarr[point].set_aspect("equal")
+            plt.subplots_adjust(wspace=0, hspace=0)
+            f.savefig(f"{image_name}_1.png", bbox_inches="tight", pad_inches=0, dpi=1600)
+            plt.close(f)
+        else:
+            if self.config["vae_q"] % 2 == 1:
+                if self.config["plot_dimensions"] == 3:
+                    f, axarr = plt.subplots(1, n_points, subplot_kw={"projection": '3d'})
+                else:
+                    f, axarr = plt.subplots(1, n_points)
+                for point in range(n_points):
+                    self.data.plot_data_point(self.y_reco_list[self.data.total_n_points - n_points + point],
+                                              axarr[point])
+                    axarr[point].set_aspect("equal")
+                plt.subplots_adjust(wspace=0, hspace=0)
+                f.savefig(f"{image_name}_{self.config['gp_q']}.png", bbox_inches="tight", pad_inches=0, dpi=1600)
+                plt.close(f)
+
+            for dim in range(self.config["vae_q"] // 2):
+                if self.config["plot_dimensions"] == 3:
+                    f, axarr = plt.subplots(n_points, n_points, subplot_kw={"projection": '3d'})
+                else:
+                    f, axarr = plt.subplots(n_points, n_points)
+                f.set_size_inches(10, 10)
+                for j in range(n_points):
+                    for i in range(n_points):
+                        self.data.plot_data_point(self.y_reco_list[n_points**2 * dim + i + j*n_points],
+                                                  axarr[n_points - (j+1), i])
+                        axarr[n_points - (j+1), i].set_aspect("equal")
+                f.subplots_adjust(wspace=0, hspace=0)
+                f.savefig(f"{image_name}_{dim*2+1}_{dim*2+2}.png", bbox_inches="tight", pad_inches=0, dpi=1600)
+                plt.close(f)

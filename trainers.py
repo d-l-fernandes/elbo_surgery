@@ -18,7 +18,7 @@ class VAETrainer(bm.BaseTrain):
             "reco": [[], True],
             "hist_reco": [[], False],
             "kl_prod": [[], True],
-            "kl_sum": [[], True]
+            "kl_sum": [[], True],
         }
 
         self.batch_gen = self.data.select_batch_generator("training")
@@ -40,14 +40,16 @@ class VAETrainer(bm.BaseTrain):
         batch_y = next(self.batch_gen)
         feed_dict = {self.model.t_y: batch_y}
 
-        _, cost, reco, reco_full, kl_prod, kl_sum = \
+        _, cost, reco, reco_full, kl_prod, kl_sum= \
             self.sess.run((
                 self.model.opt_trainer,
                 self.model.t_avg_elbo_loss,
                 self.model.t_avg_reco,
                 self.model.t_full_reco,
                 self.model.t_avg_kl_prod,
-                self.model.t_avg_kl_sum),
+                self.model.t_avg_kl_sum,
+                self.model.t_avg_kl_sum_full
+            ),
                 feed_dict)
 
         metrics = {
@@ -55,7 +57,7 @@ class VAETrainer(bm.BaseTrain):
             "reco": reco,
             "hist_reco": reco_full,
             "kl_prod": kl_prod,
-            "kl_sum": kl_sum
+            "kl_sum": kl_sum,
         }
 
         return metrics

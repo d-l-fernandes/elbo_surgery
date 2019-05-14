@@ -40,6 +40,10 @@ class DataGeneratorMNIST(bm.BaseDataGenerator):
                     yield self.input_test[i * self.b_size:(i+1) * self.b_size], \
                           self.input_test_non_bin[i * self.b_size:(i+1) * self.b_size], \
                           self.y_test[i * self.b_size:(i+1) * self.b_size]
+        elif phase == "testing_x":
+            num_iter, final_grid = self.testing_x_generator()
+            for i in range(num_iter):
+                yield final_grid[i * self.b_size:(i+1) * self.b_size]
 
     def plot_data_point(self, data, axis):
         if type(data) is list:
