@@ -3,6 +3,7 @@ from tqdm import tqdm
 
 import base_model as bm
 
+
 class VAETrainer(bm.BaseTrain):
     def __init__(self, sess, model, data, config, logger):
         super(VAETrainer, self).__init__(sess, model, data, config, logger)
@@ -40,15 +41,14 @@ class VAETrainer(bm.BaseTrain):
         batch_y = next(self.batch_gen)
         feed_dict = {self.model.t_y: batch_y}
 
-        _, cost, reco, reco_full, kl_prod, kl_sum= \
+        _, cost, reco, reco_full, kl_prod, kl_sum = \
             self.sess.run((
                 self.model.opt_trainer,
                 self.model.t_avg_elbo_loss,
                 self.model.t_avg_reco,
                 self.model.t_full_reco,
                 self.model.t_avg_kl_prod,
-                self.model.t_avg_kl_sum,
-                self.model.t_avg_kl_sum_full
+                self.model.t_avg_kl_sum
             ),
                 feed_dict)
 

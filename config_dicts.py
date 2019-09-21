@@ -41,6 +41,16 @@ def config_dict(parent_folder, vae_q, dataset):
             "plot_dimensions": 1,
             "learning_rate": 0.01
         }
+    elif dataset == "celebA":
+        config = {
+            "output_distribution": "bernoulli",
+            "batch_size": 223,
+            "num_data_points": 182637,
+            "state_size": [64, 64],
+            "label_latent_manifold": False,
+            "plot_dimensions": 2,
+            "learning_rate": 0.01
+        }
     else:
         print("Invalid dataset")
 

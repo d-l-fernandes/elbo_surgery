@@ -75,9 +75,10 @@ def main():
     vae_q_list = [2, 4, 10, 20]
     vae_q_list = [10]
 
-    dataset = "mnist"
+    # dataset = "mnist"
     # dataset = "cmu_walk"
     # dataset = "mocap"
+    dataset = "celebA"
 
     model_name = "vae"
 
@@ -150,6 +151,8 @@ def main():
             data = dg.DataGeneratorMocap(config)
         elif dataset == "cmu_walk":
             data = dg.DataGeneratorCMUWalk(config)
+        elif dataset == "celebA":
+            data = dg.DataGeneratorCelebA(config)
 
         if args.multi:
             with Pool(1) as p:

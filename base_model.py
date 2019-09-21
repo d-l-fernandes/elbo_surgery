@@ -355,9 +355,17 @@ class BaseDataGenerator:
     def reverse_standardize(self, data):
         return data * self.stddev + self.mean
 
-    def minmax(self, data):
-        self.min = np.min(data, axis=0)
-        self.max = np.max(data, axis=0)
+    def minmax(self, data, max=None, min=None):
+
+        if min is None:
+            self.min = np.min(data, axis=0)
+        else:
+            self.min = min
+
+        if max is None:
+            self.max = np.max(data, axis=0)
+        else:
+            self.max = max
 
         minmax_data = (data - self.min) / (self.max - self.min)
 
